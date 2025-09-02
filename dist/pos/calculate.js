@@ -2,13 +2,20 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.default = posCalculateRoutes;
 const client_1 = require("@prisma/client");
+const auth_middleware_1 = require("../middleware/auth.middleware");
+const token_service_1 = require("../services/token.service");
 const prisma = new client_1.PrismaClient();
 async function posCalculateRoutes(fastify) {
+    const tokenService = new token_service_1.TokenService(fastify);
+    // Add authentication hook for all POS calculate routes
+    fastify.addHook('preHandler', async (request, reply) => {
+        await (0, auth_middleware_1.authenticateStoreUser)(request, reply, tokenService);
+    });
     fastify.post('/', async (request, reply) => {
         try {
             const { items, customerType = 'REGULAR', discountPercentage = 0, taxRate } = request.body;
             // Get storeId from authenticated user
-            const storeId = request.user?.storeId;
+            const storeId = request.user.storeId;
             if (!storeId) {
                 return reply.status(401).send({
                     success: false,
@@ -30,7 +37,7 @@ async function posCalculateRoutes(fastify) {
                 const store = await prisma.store.findUnique({
                     where: { id: storeId },
                 });
-                effectiveTaxRate = store?.taxRate || 0.17; // Default to 17% if not found
+                effectiveTaxRate = store?.taxRate ?? 0.17; // Default to 17% if not found
             }
             // Fetch all products and variants in a single query
             const productIds = items.map(item => item.productId);

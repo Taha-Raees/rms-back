@@ -3,9 +3,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.default = posCheckoutRoutes;
 const client_1 = require("@prisma/client");
 const order_service_1 = require("../services/order.service");
-const stock_service_1 = require("../services/stock.service");
+const auth_middleware_1 = require("../middleware/auth.middleware");
+const token_service_1 = require("../services/token.service");
 const prisma = new client_1.PrismaClient();
 async function posCheckoutRoutes(fastify) {
+    const tokenService = new token_service_1.TokenService(fastify);
+    // Add authentication hook for all POS checkout routes
+    fastify.addHook('preHandler', async (request, reply) => {
+        await (0, auth_middleware_1.authenticateStoreUser)(request, reply, tokenService);
+    });
     fastify.post('/', async (request, reply) => {
         try {
             const user = request.user;
@@ -48,7 +54,8 @@ async function posCheckoutRoutes(fastify) {
                 const store = await prisma.store.findUnique({
                     where: { id: storeId },
                 });
-                effectiveTaxRate = store?.taxRate || 0.17; // Default to 17% if not found
+                // For POS transactions, use frontend tax calculation by defaulting to 0% (as it's being calculated independently)
+                effectiveTaxRate = 0; // Override: Use frontend's tax calculation - typically 0%
             }
             let subtotal = 0;
             const orderItems = [];
@@ -117,15 +124,6 @@ async function posCheckoutRoutes(fastify) {
             }
             // Generate order number first for stock reservation
             const orderNumber = order_service_1.OrderService.generateOrderNumber(storeId);
-            // Reserve stock before creating order
-            const stockReservationItems = items.map(item => ({
-                productId: item.productId,
-                variantId: item.variantId,
-                quantity: item.quantity
-            }));
-            // Reserve stock
-            await stock_service_1.StockService.reserveStock('', // Temporary - will be updated after order creation
-            stockReservationItems, storeId, user.id);
             // Use the new OrderService with proper transaction handling
             const orderData = {
                 items: items.map(item => ({
@@ -137,18 +135,65 @@ async function posCheckoutRoutes(fastify) {
                 paymentMethod: paymentMethod,
                 notes: `POS order - Change: ${change}`
             };
-            const newOrder = await order_service_1.OrderService.createOrder(orderData, storeId, user.id);
-            // Process payment immediately for POS
-            const paymentResult = await order_service_1.OrderService.processPayment(newOrder.id, {
-                amount: totalAmount,
-                method: paymentMethod,
-                transactionId: `POS-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-            }, storeId, user.id);
-            return reply.status(201).send({
-                success: true,
-                data: paymentResult.order,
-                message: 'Order placed successfully',
-            });
+            try {
+                console.log('Creating order with data:', {
+                    orderNumber,
+                    subtotal,
+                    taxAmount,
+                    totalAmount,
+                    paymentMethod: paymentMethod.toLowerCase(),
+                    storeId
+                });
+                // Create order directly with minimal data to isolate the issue
+                const order = await prisma.order.create({
+                    data: {
+                        orderNumber,
+                        subtotal,
+                        tax: taxAmount,
+                        total: totalAmount,
+                        status: 'pending',
+                        paymentMethod: paymentMethod.toLowerCase(),
+                        storeId,
+                    }
+                });
+                console.log('Order created successfully:', order.id);
+                // Create payment record
+                const paymentData = {
+                    amount: totalAmount,
+                    method: paymentMethod.toLowerCase(),
+                    status: 'paid',
+                    transactionId: `POS-${Date.now()}`,
+                    orderId: order.id
+                };
+                console.log('Creating payment with data:', paymentData);
+                const payment = await prisma.payment.create({
+                    data: paymentData
+                });
+                console.log('Payment created successfully:', payment.id);
+                // Update order status to completed
+                const updatedOrder = await prisma.order.update({
+                    where: { id: order.id },
+                    data: {
+                        status: 'completed',
+                        paymentStatus: 'paid'
+                    }
+                });
+                console.log('Order status updated to completed:', updatedOrder.id);
+                return reply.status(201).send({
+                    success: true,
+                    data: updatedOrder,
+                    message: 'Order placed successfully',
+                });
+            }
+            catch (dbError) {
+                console.error('Database operation failed - detailed error:');
+                console.error('Error name:', dbError?.name || 'Unknown');
+                console.error('Error message:', dbError?.message || 'Unknown');
+                console.error('Error code:', dbError?.code || 'Unknown');
+                console.error('Error meta:', dbError?.meta || {});
+                console.error('Full error:', JSON.stringify(dbError, null, 2));
+                throw dbError; // Re-throw to see the exact error
+            }
         }
         catch (error) {
             fastify.log.error(error);
