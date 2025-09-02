@@ -1,0 +1,528 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Stock adjustment reasons for audit trails
+enum StockAdjustmentReason {
+  SALE
+  RETURN
+  DAMAGE
+  THEFT
+  CORRECTION
+  RECEIPT
+  TRANSFER
+  RESERVATION
+  RESERVATION_RELEASE
+}
+
+// Order status transitions for validation
+enum OrderStatusTransition {
+  PENDING_TO_PROCESSING
+  PENDING_TO_CANCELLED
+  PROCESSING_TO_COMPLETED
+  PROCESSING_TO_CANCELLED
+  COMPLETED_TO_REFUNDED
+}
+
+// Store model - main entity for store management
+model Store {
+  id            String      @id @default(cuid())
+  name          String
+  businessType  BusinessType
+  currency      String      @default("PKR")
+  currencySymbol String     @default("Rs.")
+  taxRate       Float       @default(0.17)
+  
+  // Address details
+  street        String?
+  city          String?
+  state         String?
+  postalCode    String?
+  country       String?     @default("Pakistan")
+  
+  // Contact details
+  phone         String?
+  email         String?
+  website       String?
+  
+  // Subscription
+  subscriptionPlan          String   @default("Basic")
+  subscriptionStatus        String   @default("active")
+  subscriptionExpiresAt     DateTime?
+  subscriptionPaymentMethod String?
+  
+  // Subscription Package Relation
+  subscriptionPackageId     String?
+  subscriptionPackage       SubscriptionPackage? @relation(fields: [subscriptionPackageId], references: [id])
+  
+  // Settings
+  lowStockAlerts           Boolean  @default(true)
+  autoReorder              Boolean  @default(false)
+  discountEnabled          Boolean  @default(true)
+  multiplePaymentMethods   Boolean  @default(true)
+  receiptPrinting          Boolean  @default(true)
+  barcodeScanning          Boolean  @default(true)
+  
+  settings      Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Owner relationship - a store belongs to one owner
+  ownerId       String
+  owner         User        @relation(name: "StoreOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  
+  // Admin who created the store
+  createdByAdminId String?
+  createdByAdmin   User?      @relation(name: "StoreCreatedByAdmin", fields: [createdByAdminId], references: [id])
+  
+  // Relations
+  users         User[]      @relation(name: "StoreUsers")
+  products      Product[]
+  orders        Order[]
+  paymentGateways PaymentGateway[]
+  customers     Customer[]
+  inventoryAlerts InventoryAlert[]
+  websocketEvents WebSocketEvent[]
+  analyticsData AnalyticsData[]
+  stockReservations StockReservation[]
+  stockMovements StockMovement[]
+  auditLogs AuditLog[]
+
+  @@map("stores")
+}
+
+// User model for store-specific users
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String?
+  role      Role     @default(STAFF)
+  storeId   String?
+  store     Store?   @relation(name: "StoreUsers", fields: [storeId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastLogin DateTime?
+
+  // Reverse relations
+  ownedStores Store[] @relation(name: "StoreOwner")
+  createdStores Store[] @relation(name: "StoreCreatedByAdmin")
+  refreshTokens RefreshToken[]
+  stockMovements StockMovement[]
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+// Product model
+model Product {
+  id                String   @id @default(cuid())
+  name              String
+  brand             String?
+  category          String
+  type              ProductType
+  basePrice         Float
+  baseCost          Float
+  stock             Int
+  unit              String
+  lowStockThreshold Int
+  barcode           String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+
+  // Relations
+  storeId           String
+  store             Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variants          ProductVariant[]
+  orderItems        OrderItem[]
+  inventoryAlerts   InventoryAlert[]
+  stockReservations StockReservation[]
+  stockMovements    StockMovement[]
+
+  @@map("products")
+}
+
+// Product variant model
+model ProductVariant {
+  id         String   @id @default(cuid())
+  name       String
+  weight     Float?
+  weightUnit String? // e.g., kg, g, L, ml
+  price      Float
+  cost       Float
+  stock      Int
+  sku        String   @unique
+  deletedAt  DateTime?
+
+  // Relations
+  productId  String
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+  stockReservations StockReservation[]
+  stockMovements    StockMovement[]
+
+  @@map("product_variants")
+}
+
+// Customer model
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  // Relations
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orders    Order[]
+
+  @@map("customers")
+}
+
+// Order model
+model Order {
+  id            String        @id @default(cuid())
+  orderNumber   String        @unique
+  orderNo       String?       // Alias for orderNumber for compatibility with simpler schema
+  subtotal      Float
+  tax           Float
+  discount      Float         @default(0) // Added for completeness
+  total         Float
+  status        OrderStatus   @default(pending)
+  paymentMethod PaymentMethod
+  paymentStatus PaymentStatus @default(pending)
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+
+  // Relations
+  storeId       String
+  store         Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customerId    String?
+  customer      Customer?   @relation(fields: [customerId], references: [id])
+  items         OrderItem[]
+  payments      Payment[]
+  stockReservations StockReservation[]
+
+  @@map("orders")
+}
+
+// Order item model
+model OrderItem {
+  id          String   @id @default(cuid())
+  quantity    Int
+  unitPrice   Float
+  totalPrice  Float
+  isLoose     Boolean  @default(false)
+  actualWeight Float? // Renamed from weight for clarity
+
+  // Relations
+  orderId     String
+  order       Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product         @relation(fields: [productId], references: [id])
+  variantId   String?
+  variant     ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@map("order_items")
+}
+
+// Payment model
+model Payment {
+  id            String        @id @default(cuid())
+  amount        Float
+  method        PaymentMethod
+  status        PaymentStatus @default(pending)
+  transactionId String?
+  gatewayResponse Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relations
+  orderId       String
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+// Payment gateway model
+model PaymentGateway {
+  id       String   @id @default(cuid())
+  name     String
+  type     PaymentGatewayType
+  isActive Boolean  @default(true)
+  config   Json
+
+  // Relations
+  storeId  String
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@map("payment_gateways")
+}
+
+// Inventory alert model
+model InventoryAlert {
+  id        String   @id @default(cuid())
+  type      AlertType
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  // Relations
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+
+  @@map("inventory_alerts")
+}
+
+// WebSocket event model for real-time updates
+model WebSocketEvent {
+  id        String   @id @default(cuid())
+  type      WebSocketEventType
+  data      Json
+  timestamp DateTime @default(now())
+
+  // Relations
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@map("websocket_events")
+}
+
+// Analytics data model for caching
+model AnalyticsData {
+  id        String   @id @default(cuid())
+  type      String   // 'daily_sales', 'monthly_sales', 'top_products', etc.
+  data      Json
+  date      DateTime
+  createdAt DateTime @default(now())
+
+  // Relations
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, type, date])
+  @@map("analytics_data")
+}
+
+// Enums
+enum ProductType {
+  branded_packet // Kept for consistency with original frontend mock data
+  loose_weight
+  unit_based
+}
+
+enum BusinessType {
+  GROCERY
+  ELECTRONICS
+  CLOTHING
+  PHARMACY
+  HARDWARE
+  GENERAL
+  // Add more if needed from original Tenant.businessType
+}
+
+enum OrderStatus {
+  pending
+  processing // Added for more granularity
+  completed
+  cancelled
+  refunded // Added
+}
+
+enum PaymentMethod {
+  cash
+  card
+  jazzcash
+  easypaisa
+  bank_transfer
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  failed
+  refunded
+}
+
+enum PaymentGatewayType {
+  cash
+  card
+  mobile_wallet
+  bank_transfer
+}
+
+enum AlertType {
+  low_stock
+  out_of_stock
+  reorder_reminder
+  payment_failed
+  order_cancelled
+}
+
+enum WebSocketEventType {
+  stock_update
+  order_status
+  payment_received
+  low_stock_alert
+  new_order
+  pos_cart_update
+  pos_order_completed
+  pos_cart_cleared
+  pos_payment_started
+}
+
+enum Role {
+  SUPERADMIN
+  ADMIN
+  OWNER
+  MANAGER
+  STAFF
+}
+
+// Subscription package model for admin management
+model SubscriptionPackage {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  price       Float
+  currency    String   @default("PKR")
+  description String?
+  maxStores   Int      @default(1) // -1 for unlimited
+  maxProducts Int      @default(100)
+  maxUsers    Int      @default(5)
+  features    String[]
+  isActive    Boolean  @default(true)
+  isDefault   Boolean  @default(false) // Default package for new stores
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Reverse relations
+  stores      Store[]
+
+  @@map("subscription_packages")
+}
+
+// Refresh token model for token rotation
+model RefreshToken {
+  id              String   @id @default(cuid())
+  token           String   @unique
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  revoked         Boolean  @default(false)
+  replacedByToken String?
+  ipAddress       String?
+  userAgent       String?
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revoked])
+  @@map("refresh_tokens")
+}
+
+// Blacklisted token model for logout functionality
+model BlacklistedToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("blacklisted_tokens")
+}
+
+// Stock reservation model for pending orders
+model StockReservation {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId  String?
+  variant    ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantity   Int
+  reservedAt DateTime @default(now())
+  expiresAt  DateTime
+  status     String   @default("ACTIVE") // ACTIVE, EXPIRED, RELEASED
+  storeId    String
+  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([variantId])
+  @@index([storeId])
+  @@index([status, expiresAt])
+  @@map("stock_reservations")
+}
+
+// Stock movement model for audit trails
+model StockMovement {
+  id          String              @id @default(cuid())
+  productId   String
+  product     Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId   String?
+  variant     ProductVariant?     @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  storeId     String
+  store       Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  quantity    Int
+  reason      StockAdjustmentReason
+  referenceType String?
+  referenceId String?
+  notes       String?
+  userId      String?
+  user        User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt   DateTime            @default(now())
+
+  @@index([productId])
+  @@index([variantId])
+  @@index([storeId])
+  @@index([reason])
+  @@index([createdAt])
+  @@map("stock_movements")
+}
+
+// Audit log model for tracking changes
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  action     String
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  storeId    String?
+  store      Store?   @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([storeId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
