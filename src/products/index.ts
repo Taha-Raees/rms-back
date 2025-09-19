@@ -32,8 +32,13 @@ interface ProductVariant {
   sku: string;
   price: number;
   cost: number;
+  stock: number;
+  weight?: number;
+  weightUnit?: string;
   productId: string;
   createdAt: Date;
+  updatedAt: Date;
+  deletedAt?: Date;
 }
 
 interface CreateProductRequest {
@@ -41,7 +46,7 @@ interface CreateProductRequest {
   brand?: string;
   category: string;
   type: 'branded_packet' | 'loose_weight' | 'unit_based';
-  variants?: Omit<ProductVariant, 'id' | 'productId' | 'createdAt'>[];
+  variants?: Omit<ProductVariant, 'id' | 'productId' | 'createdAt' | 'updatedAt' | 'deletedAt'>[];
   basePrice: number;
   baseCost: number;
   stock: number;
@@ -111,9 +116,16 @@ export default async function productRoutes(fastify: FastifyInstance) {
         include: {
           variants: true,
         },
-        orderBy: {
-          name: 'asc',
-        },
+        orderBy: [
+          {
+            variants: {
+              _count: 'desc',
+            },
+          },
+          {
+            name: 'asc',
+          },
+        ],
       });
 
       return reply.status(200).send({
@@ -177,7 +189,9 @@ export default async function productRoutes(fastify: FastifyInstance) {
                   sku: v.sku,
                   price: v.price,
                   cost: v.cost,
-                  stock: 0, // Default stock for variant
+                  stock: v.stock || 0,
+                  weight: v.weight,
+                  weightUnit: v.weightUnit,
                 })),
               }
             : undefined,
@@ -330,7 +344,9 @@ export default async function productRoutes(fastify: FastifyInstance) {
                   sku: v.sku,
                   price: v.price,
                   cost: v.cost,
-                  stock: 0, // Default stock for variant
+                  stock: v.stock || 0,
+                  weight: v.weight,
+                  weightUnit: v.weightUnit,
                 })),
               }
             : undefined,
