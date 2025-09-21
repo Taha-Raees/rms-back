@@ -1,12 +1,20 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
+import { authenticateStoreUserCrossDomain } from '../../middleware/cross-domain-auth.middleware';
+import { TokenService } from '../../services/token.service';
 import { JwtPayload } from '../../services/token.service';
 
 const prisma = new PrismaClient();
 
 export default async function dashboardRoutes(fastify: FastifyInstance) {
+  const tokenService = new TokenService(fastify);
+
   // GET /analytics/dashboard - Get dashboard analytics
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
+    // Authenticate first
+    await authenticateStoreUserCrossDomain(request, reply, tokenService);
+    if (reply.sent) return; // If authentication failed, response already sent
+
     try {
       const user = request.user as JwtPayload;
       const storeId = user.storeId;
@@ -109,6 +117,31 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
       // Get top category
       const topCategory = categorySales.length > 0 ? categorySales[0].category : '';
 
+      // Convert BigInt values to numbers for JSON serialization
+      const safeSalesByMonth = salesByMonth.map((item: any) => ({
+        month: item.month,
+        totalSales: parseFloat(item.totalsales || item.totalSales) || 0,
+        orderCount: parseInt(item.ordercount || item.orderCount) || 0
+      }));
+
+      const safeProductSales = productSalesDistribution.map((item: any) => ({
+        name: item.name,
+        totalQuantitySold: parseInt(item.totalquantitysold || item.totalQuantitySold) || 0,
+        totalRevenue: parseFloat(item.totalrevenue || item.totalRevenue) || 0
+      }));
+
+      const safeCategorySales = categorySales.map((item: any) => ({
+        category: item.category,
+        totalQuantitySold: parseInt(item.totalquantitysold || item.totalQuantitySold) || 0,
+        totalRevenue: parseFloat(item.totalrevenue || item.totalRevenue) || 0,
+        orderCount: parseInt(item.ordercount || item.orderCount) || 0
+      }));
+
+      const safeTopSellingProducts = topSellingProducts.map((item: any) => ({
+        ...item,
+        totalQuantitySold: parseInt(item.totalquantitysold || item.totalQuantitySold) || 0
+      }));
+
       return {
         success: true,
         data: {
@@ -116,10 +149,10 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
           totalOrders: parseInt(totalOrdersResult[0]?.count) || 0,
           lowStockProducts,
           recentOrders,
-          topSellingProducts,
-          salesByMonth,
-          productSalesDistribution,
-          categorySales,
+          topSellingProducts: safeTopSellingProducts,
+          salesByMonth: safeSalesByMonth,
+          productSalesDistribution: safeProductSales,
+          categorySales: safeCategorySales,
           topCategory,
         }
       };

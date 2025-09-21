@@ -38,7 +38,25 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const orders = await prisma.$queryRaw`SELECT * FROM "orders" WHERE "storeId" = ${storeId} ORDER BY "createdAt" DESC` as any;
+      // Get orders with their items and product details
+      const orders = await prisma.order.findMany({
+        where: {
+          storeId: storeId
+        },
+        include: {
+          items: {
+            include: {
+              product: true,
+              variant: true
+            }
+          },
+          payments: true
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
       return {
         success: true,
         data: orders
@@ -78,8 +96,21 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const order = await prisma.$queryRaw`SELECT * FROM "orders" WHERE "id" = ${id}` as any;
-      if (!order || order.length === 0) {
+      // Get order with items and product details
+      const order = await prisma.order.findUnique({
+        where: { id },
+        include: {
+          items: {
+            include: {
+              product: true,
+              variant: true
+            }
+          },
+          payments: true
+        }
+      });
+
+      if (!order) {
         return reply.status(404).send({
           success: false,
           error: 'Order not found'
@@ -87,7 +118,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       }
 
       // Verify the order belongs to the user's store
-      if (order[0].storeId !== storeId) {
+      if (order.storeId !== storeId) {
         return reply.status(403).send({
           success: false,
           error: 'Access denied. Order does not belong to your store.'
@@ -96,7 +127,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
 
       return {
         success: true,
-        data: order[0]
+        data: order
       };
     } catch (error) {
       fastify.log.error(error);
