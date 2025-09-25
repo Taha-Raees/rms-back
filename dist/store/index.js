@@ -1,10 +1,42 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.default = storeRoutes;
-const client_1 = require("@prisma/client");
+const prisma_1 = __importStar(require("../lib/prisma"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const token_service_1 = require("../services/token.service");
-const prisma = new client_1.PrismaClient();
 async function storeRoutes(fastify) {
     const tokenService = new token_service_1.TokenService(fastify);
     // Helper function to get user from request
@@ -27,9 +59,9 @@ async function storeRoutes(fastify) {
                     error: 'Access denied. You do not have permission to view this store.'
                 });
             }
-            const store = await prisma.store.findUnique({
+            const store = await (0, prisma_1.withRetry)(() => prisma_1.default.store.findUnique({
                 where: { id },
-            });
+            }));
             if (!store) {
                 return reply.status(404).send({ success: false, error: 'Store not found' });
             }
@@ -59,9 +91,18 @@ async function storeRoutes(fastify) {
                     error: 'Access denied. You do not have permission to view store data.'
                 });
             }
-            const store = await prisma.store.findUnique({
+            const store = await (0, prisma_1.withRetry)(() => prisma_1.default.store.findUnique({
                 where: { id: storeId },
-            });
+                include: {
+                    owner: {
+                        select: {
+                            id: true,
+                            email: true,
+                            name: true,
+                        },
+                    },
+                },
+            }));
             if (!store) {
                 return reply.status(404).send({ success: false, error: 'Store not found' });
             }
@@ -104,10 +145,10 @@ async function storeRoutes(fastify) {
                 if (updateData[field] !== undefined) {
                     if (field === 'settings' && typeof updateData[field] === 'object') {
                         // Merge settings instead of replacing
-                        const currentStore = await prisma.store.findUnique({
+                        const currentStore = await (0, prisma_1.withRetry)(() => prisma_1.default.store.findUnique({
                             where: { id: storeId },
                             select: { settings: true }
-                        });
+                        }));
                         dataToUpdate[field] = {
                             ...(currentStore?.settings || {}),
                             ...updateData[field]
@@ -119,10 +160,10 @@ async function storeRoutes(fastify) {
                 }
             }
             // Update store
-            const updatedStore = await prisma.store.update({
+            const updatedStore = await (0, prisma_1.withRetry)(() => prisma_1.default.store.update({
                 where: { id: storeId },
                 data: dataToUpdate
-            });
+            }));
             return { success: true, data: updatedStore, message: 'Store settings updated successfully' };
         }
         catch (error) {

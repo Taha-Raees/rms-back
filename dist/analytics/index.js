@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.default = analyticsRoutes;
 const dashboard_1 = __importDefault(require("./dashboard"));
+const advanced_analytics_1 = __importDefault(require("./advanced-analytics"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const token_service_1 = require("../services/token.service");
 async function analyticsRoutes(fastify) {
@@ -14,5 +15,6 @@ async function analyticsRoutes(fastify) {
         await (0, auth_middleware_1.authenticateStoreUser)(request, reply, tokenService);
     });
     fastify.register(dashboard_1.default, { prefix: '/dashboard' });
+    fastify.register(advanced_analytics_1.default, { prefix: '/advanced' });
 }
 //# sourceMappingURL=index.js.map

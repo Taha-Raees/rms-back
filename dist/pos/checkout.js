@@ -178,6 +178,44 @@ async function posCheckoutRoutes(fastify) {
                         paymentStatus: 'paid'
                     }
                 });
+                // Create order items and reduce inventory
+                console.log('Creating order items and updating inventory...');
+                for (const item of orderItems) {
+                    // Create order item
+                    await prisma.orderItem.create({
+                        data: {
+                            orderId: order.id,
+                            productId: item.productId,
+                            variantId: item.variantId,
+                            quantity: item.quantity,
+                            unitPrice: item.price,
+                            totalPrice: item.price * item.quantity,
+                        }
+                    });
+                    // Reduce inventory
+                    const updateData = {
+                        stock: {
+                            decrement: item.quantity
+                        }
+                    };
+                    // If it's a variant, also reduce variant stock
+                    if (item.variantId) {
+                        await prisma.productVariant.update({
+                            where: { id: item.variantId },
+                            data: {
+                                stock: {
+                                    decrement: item.quantity
+                                }
+                            }
+                        });
+                    }
+                    // Update main product stock
+                    await prisma.product.update({
+                        where: { id: item.productId },
+                        data: updateData
+                    });
+                    console.log(`Reduced inventory for product ${item.productId}${item.variantId ? ` (variant ${item.variantId})` : ''} by ${item.quantity}`);
+                }
                 console.log('Order status updated to completed:', updatedOrder.id);
                 return reply.status(201).send({
                     success: true,

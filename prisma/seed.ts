@@ -440,22 +440,67 @@ async function main() {
   for (const { store, products, name } of storesWithProducts) {
     console.log(`Creating 5 orders for ${name} store...`);
 
-    const storeProducts = products.map(p => p.product);
-
     for (let i = 0; i < 5; i++) {
       // Random order date within last 60 days
       const randomDaysAgo = Math.floor(Math.random() * 60);
       const orderDate = new Date();
       orderDate.setDate(orderDate.getDate() - randomDaysAgo);
 
+      // Get all products and their variants for this store
+      const storeProducts = products.map(p => ({
+        product: p.product,
+        variants: p.variants
+      }));
+
+      // Create order items first to calculate totals
+      const numItems = Math.floor(Math.random() * 3) + 2; // 2-4 items
+      let orderSubtotal = 0;
+      const orderItemsData: any[] = [];
+
+      for (let j = 0; j < numItems; j++) {
+        const randomProductConfig = storeProducts[Math.floor(Math.random() * storeProducts.length)];
+        const product = randomProductConfig.product;
+        const variants = randomProductConfig.variants;
+
+        let unitPrice: number;
+        let variantId: string | undefined;
+
+        // If product has variants, randomly choose one
+        if (variants && variants.length > 0) {
+          const randomVariant = variants[Math.floor(Math.random() * variants.length)];
+          unitPrice = randomVariant.price;
+          variantId = undefined; // We won't set variantId for this simple seed, but could be added
+        } else {
+          unitPrice = product.basePrice;
+        }
+
+        const quantity = Math.floor(Math.random() * 4) + 1; // 1-4 quantity
+        const totalPrice = unitPrice * quantity;
+
+        orderSubtotal += totalPrice;
+
+        orderItemsData.push({
+          productId: product.id,
+          quantity: quantity,
+          unitPrice: unitPrice,
+          totalPrice: totalPrice,
+          variantId: variantId,
+        });
+      }
+
+      // Calculate tax and total
+      const taxRate = store.taxRate || 0.17;
+      const tax = Math.round(orderSubtotal * taxRate); // Round to nearest PKR
+      const total = orderSubtotal + tax;
+
       // Create order
       const order = await prisma.order.create({
         data: {
           orderNumber: `ORD-${store.name.slice(0, 3).toUpperCase()}-${String(i + 1).padStart(3, '0')}-${orderDate.getFullYear()}`,
           storeId: store.id,
-          total: Math.floor(Math.random() * 5000) + 500, // Random total between 500-5500
-          tax: Math.floor(Math.random() * 500) + 50, // Random tax 50-550
-          subtotal: Math.floor(Math.random() * 4500) + 400, // Random subtotal
+          subtotal: orderSubtotal,
+          tax: tax,
+          total: total,
           paymentMethod: 'cash',
           status: 'completed',
           createdAt: orderDate,
@@ -463,21 +508,14 @@ async function main() {
         },
       });
 
-      // Create 2-4 order items for this order
-      const numItems = Math.floor(Math.random() * 3) + 2; // 2-4 items
-      for (let j = 0; j < numItems; j++) {
-        const randomProduct = storeProducts[Math.floor(Math.random() * storeProducts.length)];
-        if (randomProduct) {
-          await prisma.orderItem.create({
-            data: {
-              orderId: order.id,
-              productId: randomProduct.id,
-              quantity: Math.floor(Math.random() * 4) + 1, // 1-4 quantity
-              unitPrice: randomProduct.basePrice,
-              totalPrice: randomProduct.basePrice * (Math.floor(Math.random() * 4) + 1),
-            },
-          });
-        }
+      // Create order items
+      for (const itemData of orderItemsData) {
+        await prisma.orderItem.create({
+          data: {
+            orderId: order.id,
+            ...itemData,
+          },
+        });
       }
 
       totalOrdersCreated++;

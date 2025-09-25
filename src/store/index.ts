@@ -1,10 +1,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { PrismaClient } from '@prisma/client';
+import prisma, { withRetry } from '../lib/prisma';
 import { authenticateStoreUser } from '../middleware/auth.middleware';
 import { TokenService } from '../services/token.service';
 import { JwtPayload } from '../services/token.service';
-
-const prisma = new PrismaClient();
 
 export default async function storeRoutes(fastify: FastifyInstance) {
   const tokenService = new TokenService(fastify);
@@ -32,9 +30,11 @@ export default async function storeRoutes(fastify: FastifyInstance) {
         });
       }
       
-      const store = await prisma.store.findUnique({
-        where: { id },
-      });
+      const store = await withRetry(
+        () => prisma.store.findUnique({
+          where: { id },
+        })
+      );
       
       if (!store) {
         return reply.status(404).send({ success: false, error: 'Store not found' });
@@ -70,9 +70,20 @@ export default async function storeRoutes(fastify: FastifyInstance) {
         });
       }
       
-      const store = await prisma.store.findUnique({
-        where: { id: storeId },
-      });
+      const store = await withRetry(
+        () => prisma.store.findUnique({
+          where: { id: storeId },
+          include: {
+            owner: {
+              select: {
+                id: true,
+                email: true,
+                name: true,
+              },
+            },
+          },
+        })
+      );
       
       if (!store) {
         return reply.status(404).send({ success: false, error: 'Store not found' });
@@ -123,10 +134,12 @@ export default async function storeRoutes(fastify: FastifyInstance) {
         if (updateData[field] !== undefined) {
           if (field === 'settings' && typeof updateData[field] === 'object') {
             // Merge settings instead of replacing
-            const currentStore = await prisma.store.findUnique({
-              where: { id: storeId },
-              select: { settings: true }
-            });
+            const currentStore = await withRetry(
+              () => prisma.store.findUnique({
+                where: { id: storeId },
+                select: { settings: true }
+              })
+            );
             
             dataToUpdate[field] = {
               ...(currentStore?.settings as object || {}),
@@ -139,10 +152,12 @@ export default async function storeRoutes(fastify: FastifyInstance) {
       }
       
       // Update store
-      const updatedStore = await prisma.store.update({
-        where: { id: storeId },
-        data: dataToUpdate
-      });
+      const updatedStore = await withRetry(
+        () => prisma.store.update({
+          where: { id: storeId },
+          data: dataToUpdate
+        })
+      );
       
       return { success: true, data: updatedStore, message: 'Store settings updated successfully' };
     } catch (error) {

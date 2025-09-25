@@ -56,9 +56,16 @@ async function productRoutes(fastify) {
                 include: {
                     variants: true,
                 },
-                orderBy: {
-                    name: 'asc',
-                },
+                orderBy: [
+                    {
+                        variants: {
+                            _count: 'desc',
+                        },
+                    },
+                    {
+                        name: 'asc',
+                    },
+                ],
             });
             return reply.status(200).send({
                 success: true,
@@ -118,7 +125,9 @@ async function productRoutes(fastify) {
                                 sku: v.sku,
                                 price: v.price,
                                 cost: v.cost,
-                                stock: 0, // Default stock for variant
+                                stock: v.stock || 0,
+                                weight: v.weight,
+                                weightUnit: v.weightUnit,
                             })),
                         }
                         : undefined,
@@ -258,7 +267,9 @@ async function productRoutes(fastify) {
                                 sku: v.sku,
                                 price: v.price,
                                 cost: v.cost,
-                                stock: 0, // Default stock for variant
+                                stock: v.stock || 0,
+                                weight: v.weight,
+                                weightUnit: v.weightUnit,
                             })),
                         }
                         : undefined,

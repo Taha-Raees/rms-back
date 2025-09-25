@@ -1,10 +1,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { PrismaClient } from '@prisma/client';
+import prisma, { withRetry } from '../../lib/prisma';
 import { authenticateStoreUserCrossDomain } from '../../middleware/cross-domain-auth.middleware';
 import { TokenService } from '../../services/token.service';
 import { JwtPayload } from '../../services/token.service';
-
-const prisma = new PrismaClient();
 
 export default async function dashboardRoutes(fastify: FastifyInstance) {
   const tokenService = new TokenService(fastify);
@@ -35,17 +33,17 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
       }
 
       // Get total revenue and orders
-      const totalRevenueResult = await prisma.$queryRaw`SELECT SUM(total) as sum FROM "orders" WHERE "storeId" = ${storeId} AND "status" = 'completed'` as any;
-      const totalOrdersResult = await prisma.$queryRaw`SELECT COUNT(*) as count FROM "orders" WHERE "storeId" = ${storeId} AND "status" = 'completed'` as any;
-      
+      const totalRevenueResult = await withRetry<any[]>(() => prisma.$queryRaw`SELECT SUM(total) as sum FROM "orders" WHERE "storeId" = ${storeId} AND "status" = 'completed'`);
+      const totalOrdersResult = await withRetry<any[]>(() => prisma.$queryRaw`SELECT COUNT(*) as count FROM "orders" WHERE "storeId" = ${storeId} AND "status" = 'completed'`);
+
       // Get low stock products using raw query
-      const lowStockProducts = await prisma.$queryRaw`
-        SELECT * FROM "products" 
-        WHERE "storeId" = ${storeId} 
+      const lowStockProducts = await withRetry<any[]>(() => prisma.$queryRaw`
+        SELECT * FROM "products"
+        WHERE "storeId" = ${storeId}
         AND "stock" <= "lowStockThreshold"
-      ` as any;
-      
-      const recentOrders = await prisma.order.findMany({
+      `);
+
+      const recentOrders = await withRetry(() => prisma.order.findMany({
         where: {
           storeId: storeId
         },
@@ -53,11 +51,11 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
           createdAt: 'desc'
         },
         take: 10
-      });
-      
+      }));
+
       // Get top selling products by total quantity sold
-      const topSellingProducts = await prisma.$queryRaw`
-        SELECT 
+      const topSellingProducts = await withRetry<any[]>(() => prisma.$queryRaw`
+        SELECT
           p.*,
           SUM(oi."quantity") as "totalQuantitySold"
         FROM "products" p
@@ -67,25 +65,25 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
         GROUP BY p."id"
         ORDER BY "totalQuantitySold" DESC
         LIMIT 10
-      ` as any;
+      `);
 
       // Get sales data by month for the last 12 months
-      const salesByMonth = await prisma.$queryRaw`
-        SELECT 
+      const salesByMonth = await withRetry<any[]>(() => prisma.$queryRaw`
+        SELECT
           DATE_TRUNC('month', "createdAt") as month,
           SUM("total") as "totalSales",
           COUNT(*) as "orderCount"
         FROM "orders"
-        WHERE "storeId" = ${storeId} 
+        WHERE "storeId" = ${storeId}
           AND "status" = 'completed'
           AND "createdAt" >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '11 months'
         GROUP BY DATE_TRUNC('month', "createdAt")
         ORDER BY month
-      ` as any;
+      `);
 
       // Get product sales distribution
-      const productSalesDistribution = await prisma.$queryRaw`
-        SELECT 
+      const productSalesDistribution = await withRetry<any[]>(() => prisma.$queryRaw`
+        SELECT
           p."name",
           SUM(oi."quantity") as "totalQuantitySold",
           SUM(oi."totalPrice") as "totalRevenue"
@@ -96,11 +94,11 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
         GROUP BY p."id", p."name"
         ORDER BY "totalQuantitySold" DESC
         LIMIT 10
-      ` as any;
+      `);
 
       // Get top categories by sales
-      const categorySales = await prisma.$queryRaw`
-        SELECT 
+      const categorySales = await withRetry<any[]>(() => prisma.$queryRaw`
+        SELECT
           p."category",
           SUM(oi."quantity") as "totalQuantitySold",
           SUM(oi."totalPrice") as "totalRevenue",
@@ -112,7 +110,7 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
         GROUP BY p."category"
         ORDER BY "totalRevenue" DESC
         LIMIT 5
-      ` as any;
+      `);
 
       // Get top category
       const topCategory = categorySales.length > 0 ? categorySales[0].category : '';

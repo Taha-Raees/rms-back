@@ -1,11 +1,50 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.default = dashboardRoutes;
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const prisma_1 = __importStar(require("../../lib/prisma"));
+const cross_domain_auth_middleware_1 = require("../../middleware/cross-domain-auth.middleware");
+const token_service_1 = require("../../services/token.service");
 async function dashboardRoutes(fastify) {
+    const tokenService = new token_service_1.TokenService(fastify);
     // GET /analytics/dashboard - Get dashboard analytics
     fastify.get('/', async (request, reply) => {
+        // Authenticate first
+        await (0, cross_domain_auth_middleware_1.authenticateStoreUserCrossDomain)(request, reply, tokenService);
+        if (reply.sent)
+            return; // If authentication failed, response already sent
         try {
             const user = request.user;
             const storeId = user.storeId;
@@ -23,15 +62,15 @@ async function dashboardRoutes(fastify) {
                 });
             }
             // Get total revenue and orders
-            const totalRevenueResult = await prisma.$queryRaw `SELECT SUM(total) as sum FROM "orders" WHERE "storeId" = ${storeId} AND "status" = 'completed'`;
-            const totalOrdersResult = await prisma.$queryRaw `SELECT COUNT(*) as count FROM "orders" WHERE "storeId" = ${storeId} AND "status" = 'completed'`;
+            const totalRevenueResult = await (0, prisma_1.withRetry)(() => prisma_1.default.$queryRaw `SELECT SUM(total) as sum FROM "orders" WHERE "storeId" = ${storeId} AND "status" = 'completed'`);
+            const totalOrdersResult = await (0, prisma_1.withRetry)(() => prisma_1.default.$queryRaw `SELECT COUNT(*) as count FROM "orders" WHERE "storeId" = ${storeId} AND "status" = 'completed'`);
             // Get low stock products using raw query
-            const lowStockProducts = await prisma.$queryRaw `
-        SELECT * FROM "products" 
-        WHERE "storeId" = ${storeId} 
+            const lowStockProducts = await (0, prisma_1.withRetry)(() => prisma_1.default.$queryRaw `
+        SELECT * FROM "products"
+        WHERE "storeId" = ${storeId}
         AND "stock" <= "lowStockThreshold"
-      `;
-            const recentOrders = await prisma.order.findMany({
+      `);
+            const recentOrders = await (0, prisma_1.withRetry)(() => prisma_1.default.order.findMany({
                 where: {
                     storeId: storeId
                 },
@@ -39,10 +78,10 @@ async function dashboardRoutes(fastify) {
                     createdAt: 'desc'
                 },
                 take: 10
-            });
+            }));
             // Get top selling products by total quantity sold
-            const topSellingProducts = await prisma.$queryRaw `
-        SELECT 
+            const topSellingProducts = await (0, prisma_1.withRetry)(() => prisma_1.default.$queryRaw `
+        SELECT
           p.*,
           SUM(oi."quantity") as "totalQuantitySold"
         FROM "products" p
@@ -52,23 +91,23 @@ async function dashboardRoutes(fastify) {
         GROUP BY p."id"
         ORDER BY "totalQuantitySold" DESC
         LIMIT 10
-      `;
+      `);
             // Get sales data by month for the last 12 months
-            const salesByMonth = await prisma.$queryRaw `
-        SELECT 
+            const salesByMonth = await (0, prisma_1.withRetry)(() => prisma_1.default.$queryRaw `
+        SELECT
           DATE_TRUNC('month', "createdAt") as month,
           SUM("total") as "totalSales",
           COUNT(*) as "orderCount"
         FROM "orders"
-        WHERE "storeId" = ${storeId} 
+        WHERE "storeId" = ${storeId}
           AND "status" = 'completed'
           AND "createdAt" >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '11 months'
         GROUP BY DATE_TRUNC('month', "createdAt")
         ORDER BY month
-      `;
+      `);
             // Get product sales distribution
-            const productSalesDistribution = await prisma.$queryRaw `
-        SELECT 
+            const productSalesDistribution = await (0, prisma_1.withRetry)(() => prisma_1.default.$queryRaw `
+        SELECT
           p."name",
           SUM(oi."quantity") as "totalQuantitySold",
           SUM(oi."totalPrice") as "totalRevenue"
@@ -79,10 +118,10 @@ async function dashboardRoutes(fastify) {
         GROUP BY p."id", p."name"
         ORDER BY "totalQuantitySold" DESC
         LIMIT 10
-      `;
+      `);
             // Get top categories by sales
-            const categorySales = await prisma.$queryRaw `
-        SELECT 
+            const categorySales = await (0, prisma_1.withRetry)(() => prisma_1.default.$queryRaw `
+        SELECT
           p."category",
           SUM(oi."quantity") as "totalQuantitySold",
           SUM(oi."totalPrice") as "totalRevenue",
@@ -94,9 +133,30 @@ async function dashboardRoutes(fastify) {
         GROUP BY p."category"
         ORDER BY "totalRevenue" DESC
         LIMIT 5
-      `;
+      `);
             // Get top category
             const topCategory = categorySales.length > 0 ? categorySales[0].category : '';
+            // Convert BigInt values to numbers for JSON serialization
+            const safeSalesByMonth = salesByMonth.map((item) => ({
+                month: item.month,
+                totalSales: parseFloat(item.totalsales || item.totalSales) || 0,
+                orderCount: parseInt(item.ordercount || item.orderCount) || 0
+            }));
+            const safeProductSales = productSalesDistribution.map((item) => ({
+                name: item.name,
+                totalQuantitySold: parseInt(item.totalquantitysold || item.totalQuantitySold) || 0,
+                totalRevenue: parseFloat(item.totalrevenue || item.totalRevenue) || 0
+            }));
+            const safeCategorySales = categorySales.map((item) => ({
+                category: item.category,
+                totalQuantitySold: parseInt(item.totalquantitysold || item.totalQuantitySold) || 0,
+                totalRevenue: parseFloat(item.totalrevenue || item.totalRevenue) || 0,
+                orderCount: parseInt(item.ordercount || item.orderCount) || 0
+            }));
+            const safeTopSellingProducts = topSellingProducts.map((item) => ({
+                ...item,
+                totalQuantitySold: parseInt(item.totalquantitysold || item.totalQuantitySold) || 0
+            }));
             return {
                 success: true,
                 data: {
@@ -104,10 +164,10 @@ async function dashboardRoutes(fastify) {
                     totalOrders: parseInt(totalOrdersResult[0]?.count) || 0,
                     lowStockProducts,
                     recentOrders,
-                    topSellingProducts,
-                    salesByMonth,
-                    productSalesDistribution,
-                    categorySales,
+                    topSellingProducts: safeTopSellingProducts,
+                    salesByMonth: safeSalesByMonth,
+                    productSalesDistribution: safeProductSales,
+                    categorySales: safeCategorySales,
                     topCategory,
                 }
             };

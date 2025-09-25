@@ -10,7 +10,7 @@ const multipart_1 = __importDefault(require("@fastify/multipart"));
 const cookie_1 = __importDefault(require("@fastify/cookie"));
 const session_1 = __importDefault(require("@fastify/session"));
 const jwt_1 = __importDefault(require("@fastify/jwt"));
-const client_1 = require("@prisma/client");
+const prisma_1 = __importDefault(require("./lib/prisma"));
 const token_service_1 = require("./services/token.service");
 const cleanup_service_1 = require("./services/cleanup.service");
 // Import route handlers
@@ -26,7 +26,6 @@ const store_1 = __importDefault(require("./store"));
 const websocket_1 = require("./websocket");
 const audit_1 = __importDefault(require("./audit"));
 const users_1 = __importDefault(require("./users"));
-const prisma = new client_1.PrismaClient();
 const fastify = (0, fastify_1.default)({
     logger: true,
 });
@@ -82,7 +81,7 @@ fastify.register(jwt_1.default, {
 // Socket.IO integration after Fastify registration
 let io;
 // Add Prisma client to Fastify instance
-fastify.decorate('prisma', prisma);
+fastify.decorate('prisma', prisma_1.default);
 // A simple root route for testing
 fastify.get('/', async (request, reply) => {
     return { message: 'Fastify server is running!' };

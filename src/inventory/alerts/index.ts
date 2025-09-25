@@ -1,8 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { PrismaClient } from '@prisma/client';
+import prisma, { withRetry } from '../../lib/prisma';
 import { JwtPayload } from '../../services/token.service';
-
-const prisma = new PrismaClient();
 
 export default async function alertsRoutes(fastify: FastifyInstance) {
   // GET /inventory/alerts - Get all low stock alerts for the authenticated user's store
@@ -26,7 +24,9 @@ export default async function alertsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const alerts = await prisma.$queryRaw`SELECT * FROM "products" WHERE "storeId" = ${storeId} AND "stock" <= "lowStockThreshold"` as any;
+      const alerts = await withRetry(
+        () => prisma.$queryRaw`SELECT * FROM "products" WHERE "storeId" = ${storeId} AND "stock" <= "lowStockThreshold"` as any
+      );
       return {
         success: true,
         data: alerts

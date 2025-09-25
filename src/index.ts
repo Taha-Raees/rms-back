@@ -7,7 +7,7 @@ import session from '@fastify/session';
 import jwt from '@fastify/jwt';
 import { Server as SocketIOServer } from 'socket.io';
 import { createServer } from 'http';
-import { PrismaClient } from '@prisma/client';
+import prisma from './lib/prisma';
 import { TokenService } from './services/token.service';
 import { CleanupService } from './services/cleanup.service';
 
@@ -25,7 +25,6 @@ import { createWebSocketServer } from './websocket';
 import auditRoutes from './audit';
 import userRoutes from './users';
 
-const prisma = new PrismaClient();
 const fastify = Fastify({
   logger: true,
 });
