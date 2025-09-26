@@ -26,6 +26,7 @@ const store_1 = __importDefault(require("./store"));
 const websocket_1 = require("./websocket");
 const audit_1 = __importDefault(require("./audit"));
 const users_1 = __importDefault(require("./users"));
+const chat_1 = __importDefault(require("./chat"));
 const fastify = (0, fastify_1.default)({
     logger: true,
 });
@@ -98,6 +99,7 @@ fastify.register(payments_1.default, { prefix: '/payments' });
 fastify.register(store_1.default, { prefix: '/store' });
 fastify.register(audit_1.default, { prefix: '/audit' });
 fastify.register(users_1.default, { prefix: '/users' });
+fastify.register(chat_1.default, { prefix: '/chat' });
 // Error handling
 fastify.setErrorHandler((error, request, reply) => {
     fastify.log.error(error);

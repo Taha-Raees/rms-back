@@ -24,6 +24,7 @@ import storeRoutes from './store';
 import { createWebSocketServer } from './websocket';
 import auditRoutes from './audit';
 import userRoutes from './users';
+import chatRoutes from './chat';
 
 const fastify = Fastify({
   logger: true,
@@ -105,6 +106,7 @@ fastify.register(paymentsRoutes, { prefix: '/payments' });
 fastify.register(storeRoutes, { prefix: '/store' });
 fastify.register(auditRoutes, { prefix: '/audit' });
 fastify.register(userRoutes, { prefix: '/users' });
+fastify.register(chatRoutes, { prefix: '/chat' });
 
 // Error handling
 fastify.setErrorHandler((error, request, reply) => {

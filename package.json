@@ -37,7 +37,8 @@
     "fastify": "^4.27.0",
     "socket.io": "^4.8.1",
     "uuid": "^11.1.0",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@babel/core": "^7.28.0",
