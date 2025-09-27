@@ -98,6 +98,11 @@ IMPORTANT RULES:
 - Provide actionable insights and specific recommendations based on the data.
 - If asked about something not in the data, say so clearly.
 
+LANGUAGE RULES:
+- If the user writes in Urdu using English letters (e.g., "mughe", "ke baray me", "likho"), ALWAYS respond in Urdu using English letters, not Arabic script.
+- If the user asks explicitly to "write in Urdu" or similar, respond in Urdu using English letters.
+- Maintain this Urdu response format until asked to switch back to English.
+
 STORE DATA:
 ${JSON.stringify(storeData, null, 2)}
 
