@@ -15,7 +15,7 @@ const MessageSchema = zod_1.z.object({
         content: zod_1.z.string(),
     })).optional().default([]),
 });
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const MODEL = 'x-ai/grok-4-fast:free';
 async function chatRoutes(fastify) {
     const tokenService = new token_service_1.TokenService(fastify);
@@ -104,7 +104,7 @@ USER QUESTION: ${message}`;
             }
             try {
                 // Call OpenRouter API
-                const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                const openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
@@ -120,15 +120,15 @@ USER QUESTION: ${message}`;
                         top_p: 0.9,
                     }),
                 });
-                if (!response.ok) {
-                    const errorData = await response.text();
-                    fastify.log.error(`OpenRouter API error: ${errorData}`);
+                if (!openRouterResponse.ok) {
+                    const errorData = await openRouterResponse.text();
+                    fastify.log.error(`OpenRouter API error (${openRouterResponse.status}): ${errorData}`);
                     return reply.status(500).send({
                         success: false,
                         error: 'Failed to get AI response',
                     });
                 }
-                const aiResponse = await response.json();
+                const aiResponse = await openRouterResponse.json();
                 if (!aiResponse.choices || !aiResponse.choices[0]) {
                     return reply.status(500).send({
                         success: false,
@@ -146,7 +146,7 @@ USER QUESTION: ${message}`;
                 });
             }
             catch (apiError) {
-                fastify.log.error('OpenRouter API call failed:', apiError);
+                fastify.log.error(`OpenRouter API call failed: ${apiError?.message || JSON.stringify(apiError)}`);
                 return reply.status(500).send({
                     success: false,
                     error: 'AI service temporarily unavailable',
@@ -190,8 +190,166 @@ USER QUESTION: ${message}`;
 // Comprehensive store data aggregation function
 async function getStoreCompleteData(storeId) {
     try {
-        // Start with minimal data first for testing
+        // Get store information
         const store = await prisma_1.default.store.findUnique({
+            where: { id: storeId },
+            include: {
+                orders: {
+                    include: {
+                        items: {
+                            include: {
+                                product: true,
+                                variant: true,
+                            },
+                        },
+                        payments: true,
+                        customer: {
+                            select: {
+                                id: true,
+                                name: true,
+                                phone: true,
+                                email: true,
+                            },
+                        },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    take: 50, // Last 50 orders for context
+                },
+                products: {
+                    include: {
+                        variants: true,
+                    },
+                    where: { deletedAt: null },
+                },
+                inventoryAlerts: {
+                    where: { isRead: false },
+                    orderBy: { createdAt: 'desc' },
+                },
+                customers: {
+                    orderBy: { createdAt: 'desc' },
+                    select: {
+                        id: true,
+                        name: true,
+                        phone: true,
+                        email: true,
+                        createdAt: true,
+                    },
+                    take: 50,
+                },
+                analyticsData: {
+                    orderBy: { date: 'desc' },
+                    take: 30,
+                },
+                stockMovements: {
+                    include: {
+                        product: true,
+                        user: true,
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    take: 50,
+                },
+            },
+        });
+        if (!store) {
+            throw new Error('Store not found');
+        }
+        // Calculate metrics
+        const completedOrders = store.orders.filter(order => order.status === 'completed');
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const metrics = {
+            totalOrders: store.orders.length,
+            totalCompletedOrders: completedOrders.length,
+            totalRevenue: completedOrders.reduce((sum, order) => sum + order.total, 0),
+            totalProducts: store.products.length,
+            totalCustomers: store.customers.length,
+            lowStockItems: store.inventoryAlerts.filter(alert => alert.type === 'low_stock').length,
+            totalStockValue: store.products.reduce((sum, product) => sum + (product.stock * product.baseCost), 0),
+            completedOrdersLast30Days: completedOrders.filter((order) => order.createdAt >= thirtyDaysAgo).length,
+        };
+        // Get summary data for AI analysis
+        const summaryData = {
+            store: {
+                id: store.id,
+                name: store.name,
+                businessType: store.businessType,
+                currency: store.currency,
+                currencySymbol: store.currencySymbol,
+                taxRate: store.taxRate,
+                metrics,
+            },
+            products: store.products.map((product) => ({
+                id: product.id,
+                name: product.name,
+                category: product.category,
+                stock: product.stock,
+                unit: product.unit,
+                lowStockThreshold: product.lowStockThreshold,
+                basePrice: product.basePrice,
+                baseCost: product.baseCost,
+                isActive: product.isActive,
+                variants: product.variants?.map((variant) => ({
+                    id: variant.id,
+                    name: variant.name,
+                    price: variant.price,
+                    cost: variant.cost,
+                    stock: variant.stock,
+                    sku: variant.sku,
+                })) || [],
+            })),
+            recentOrders: store.orders.slice(0, 20).map((order) => ({
+                id: order.id,
+                orderNumber: order.orderNumber,
+                subtotal: order.subtotal,
+                tax: order.tax,
+                total: order.total,
+                status: order.status,
+                paymentMethod: order.paymentMethod,
+                paymentStatus: order.paymentStatus,
+                createdAt: order.createdAt,
+                customer: order.customer,
+                items: order.items.map((item) => ({
+                    productName: item.product?.name || 'Unknown Product',
+                    quantity: item.quantity,
+                    unitPrice: item.unitPrice,
+                    totalPrice: item.totalPrice,
+                    variant: item.variant?.name || null,
+                })),
+                payments: order.payments?.map((payment) => ({
+                    amount: payment.amount,
+                    method: payment.method,
+                    status: payment.status,
+                    createdAt: payment.createdAt,
+                })) || [],
+            })),
+            inventoryAlerts: store.inventoryAlerts.map((alert) => ({
+                id: alert.id,
+                type: alert.type,
+                message: alert.message,
+                isRead: alert.isRead,
+                createdAt: alert.createdAt,
+                productId: alert.productId,
+            })),
+            recentAnalytics: store.analyticsData,
+            recentStockMovements: store.stockMovements.slice(0, 30).map((movement) => ({
+                id: movement.id,
+                productName: movement.product?.name || 'Unknown Product',
+                quantity: movement.quantity,
+                reason: movement.reason,
+                createdAt: movement.createdAt,
+                user: movement.user ? {
+                    name: movement.user.name,
+                    email: movement.user.email,
+                } : null,
+            })),
+            customers: store.customers,
+        };
+        return summaryData;
+    }
+    catch (error) {
+        console.error('Error aggregating store data:', error);
+        // Even on error, provide basic store info
+        const basicStore = await prisma_1.default.store.findUnique({
             where: { id: storeId },
             select: {
                 id: true,
@@ -202,54 +360,15 @@ async function getStoreCompleteData(storeId) {
                 taxRate: true,
             },
         });
-        if (!store) {
-            throw new Error('Store not found');
-        }
-        return {
-            store: {
-                id: store.id,
-                name: store.name,
-                businessType: store.businessType,
-                currency: store.currency,
-                currencySymbol: store.currencySymbol,
-                taxRate: store.taxRate,
-                message: "AI analysis coming soon - testing basic connection"
-            }
-        };
-        /* Uncomment below when basic connection works
-        // Get basic counts
-        const orderCount = await prisma.order.count({ where: { storeId } });
-        const productCount = await prisma.product.count({ where: { storeId, deletedAt: null } });
-        const customerCount = await prisma.customer.count({ where: { storeId } });
-    
-        const summaryData = {
-          store: {
-            id: store.id,
-            name: store.name,
-            businessType: store.businessType,
-            currency: store.currency,
-            currencySymbol: store.currencySymbol,
-            taxRate: store.taxRate,
-            metrics: {
-              totalOrders: orderCount,
-              totalProducts: productCount,
-              totalCustomers: customerCount,
-            }
-          }
-        };
-    
-        return summaryData;
-        */
-    }
-    catch (error) {
-        console.error('Error aggregating store data:', error);
-        // Return basic store info even on error
         return {
             store: {
                 id: storeId,
-                name: 'Store',
-                businessType: 'GENERAL',
-                message: "Unable to load full store data"
+                name: basicStore?.name || 'Store',
+                businessType: basicStore?.businessType || 'GENERAL',
+                currency: basicStore?.currency || 'PKR',
+                currencySymbol: basicStore?.currencySymbol || 'Rs.',
+                taxRate: basicStore?.taxRate || 0,
+                error: 'Full data analysis unavailable',
             }
         };
     }
