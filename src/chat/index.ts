@@ -29,7 +29,7 @@ interface OpenRouterResponse {
 }
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ;
-const MODEL = 'google/gemini-2.0-flash-exp:free';
+const MODEL = 'deepseek/deepseek-chat-v3.1:free';
 
 export default async function chatRoutes(fastify: FastifyInstance) {
   const tokenService = new TokenService(fastify);
