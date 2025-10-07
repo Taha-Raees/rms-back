@@ -16,7 +16,7 @@ const MessageSchema = zod_1.z.object({
     })).optional().default([]),
 });
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const MODEL = 'x-ai/grok-4-fast:free';
+const MODEL = 'google/gemini-2.0-flash-exp:free';
 async function chatRoutes(fastify) {
     const tokenService = new token_service_1.TokenService(fastify);
     // Add authentication hook for all chat routes

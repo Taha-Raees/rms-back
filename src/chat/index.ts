@@ -29,7 +29,7 @@ interface OpenRouterResponse {
 }
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ;
-const MODEL = 'x-ai/grok-4-fast:free';
+const MODEL = 'google/gemini-2.0-flash-exp:free';
 
 export default async function chatRoutes(fastify: FastifyInstance) {
   const tokenService = new TokenService(fastify);
