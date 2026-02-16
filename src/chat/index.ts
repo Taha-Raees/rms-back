@@ -3,6 +3,7 @@ import { authenticateStoreUser, AuthenticatedRequest } from '../middleware/auth.
 import { TokenService } from '../services/token.service';
 import prisma from '../lib/prisma';
 import { z } from 'zod';
+import OpenAI from 'openai';
 
 const MessageSchema = z.object({
   message: z.string().min(1).max(2000),
@@ -20,16 +21,14 @@ interface MessageRequest {
   }>;
 }
 
-interface OpenRouterResponse {
-  choices: Array<{
-    message: {
-      content: string;
-    };
-  }>;
-}
+const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
+const MODEL = 'z-ai/glm5';
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ;
-const MODEL = 'z-ai/glm-4.5-air:free';
+// Initialize OpenAI client for NVIDIA NIM
+const client = new OpenAI({
+  baseURL: 'https://integrate.api.nvidia.com/v1',
+  apiKey: NVIDIA_API_KEY,
+});
 
 export default async function chatRoutes(fastify: FastifyInstance) {
   const tokenService = new TokenService(fastify);
@@ -134,8 +133,8 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}
 
 USER QUESTION: ${message}`;
 
-      // Prepare messages for OpenRouter API
-      const messages = [
+      // Prepare messages for NVIDIA NIM API
+      const messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [
         {
           role: 'user',
           content: systemPrompt,
@@ -147,49 +146,30 @@ USER QUESTION: ${message}`;
         // Only add last 5 pairs to avoid token limit
         const recentHistory = conversationHistory.slice(-10);
         messages.unshift(...recentHistory.map(msg => ({
-          role: 'user',
+          role: msg.role as 'user' | 'assistant',
           content: msg.content,
         })));
       }
 
       try {
-        // Call OpenRouter API
-        const openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://your-site.com', // Optional
-            'X-Title': 'Retail Management Chatbot', // Optional
-          },
-          body: JSON.stringify({
-            model: MODEL,
-            messages: messages,
-            temperature: 0.7,
-            max_tokens: 2048,
-            top_p: 0.9,
-          }),
+        // Call NVIDIA NIM API using OpenAI SDK
+        const completion = await client.chat.completions.create({
+          model: MODEL,
+          messages: messages,
+          temperature: 0.7,
+          top_p: 0.9,
+          max_tokens: 2048,
+          stream: false,
         });
 
-        if (!openRouterResponse.ok) {
-          const errorData = await openRouterResponse.text();
-          fastify.log.error(`OpenRouter API error (${openRouterResponse.status}): ${errorData}`);
-          return reply.status(500).send({
-            success: false,
-            error: 'Failed to get AI response',
-          });
-        }
+        const aiMessage = completion.choices[0]?.message?.content;
 
-        const aiResponse = await openRouterResponse.json() as OpenRouterResponse;
-
-        if (!aiResponse.choices || !aiResponse.choices[0]) {
+        if (!aiMessage) {
           return reply.status(500).send({
             success: false,
             error: 'Invalid AI response format',
           });
         }
-
-        const aiMessage = aiResponse.choices[0].message.content;
 
         return reply.status(200).send({
           success: true,
@@ -201,7 +181,7 @@ USER QUESTION: ${message}`;
         });
 
       } catch (apiError: any) {
-        fastify.log.error(`OpenRouter API call failed: ${apiError?.message || JSON.stringify(apiError)}`);
+        fastify.log.error(`NVIDIA NIM API call failed: ${apiError?.message || JSON.stringify(apiError)}`);
         return reply.status(500).send({
           success: false,
           error: 'AI service temporarily unavailable',
@@ -220,18 +200,15 @@ USER QUESTION: ${message}`;
   // GET /chat/health - Check if chat service is available
   fastify.get('/health', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const response = await fetch('https://openrouter.ai/api/v1/models', {
-        headers: {
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        },
-      });
+      // Simple health check - verify API key is configured
+      const isConfigured = !!NVIDIA_API_KEY;
 
       return reply.status(200).send({
         success: true,
         data: {
-          service: 'OpenRouter',
+          service: 'NVIDIA NIM',
           model: MODEL,
-          available: response.ok,
+          available: isConfigured,
           timestamp: new Date().toISOString(),
         },
       });
