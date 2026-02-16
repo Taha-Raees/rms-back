@@ -21,13 +21,13 @@ interface MessageRequest {
   }>;
 }
 
-const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
-const MODEL = 'z-ai/glm5';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const MODEL = 'stepfun/step-3.5-flash:free';
 
-// Initialize OpenAI client for NVIDIA NIM
+// Initialize OpenAI client for OpenRouter
 const client = new OpenAI({
-  baseURL: 'https://integrate.api.nvidia.com/v1',
-  apiKey: NVIDIA_API_KEY,
+  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: OPENROUTER_API_KEY,
 });
 
 export default async function chatRoutes(fastify: FastifyInstance) {
@@ -133,7 +133,7 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}
 
 USER QUESTION: ${message}`;
 
-      // Prepare messages for NVIDIA NIM API
+      // Prepare messages for OpenRouter API
       const messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [
         {
           role: 'user',
@@ -152,15 +152,15 @@ USER QUESTION: ${message}`;
       }
 
       try {
-        // Call NVIDIA NIM API using OpenAI SDK
+        // Call OpenRouter API using OpenAI SDK with reasoning enabled
         const completion = await client.chat.completions.create({
           model: MODEL,
           messages: messages,
           temperature: 0.7,
           top_p: 0.9,
           max_tokens: 2048,
-          stream: false,
-        });
+          reasoning: { enabled: true },
+        } as any);
 
         const aiMessage = completion.choices[0]?.message?.content;
 
@@ -181,7 +181,7 @@ USER QUESTION: ${message}`;
         });
 
       } catch (apiError: any) {
-        fastify.log.error(`NVIDIA NIM API call failed: ${apiError?.message || JSON.stringify(apiError)}`);
+        fastify.log.error(`OpenRouter API call failed: ${apiError?.message || JSON.stringify(apiError)}`);
         return reply.status(500).send({
           success: false,
           error: 'AI service temporarily unavailable',
@@ -201,12 +201,12 @@ USER QUESTION: ${message}`;
   fastify.get('/health', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       // Simple health check - verify API key is configured
-      const isConfigured = !!NVIDIA_API_KEY;
+      const isConfigured = !!OPENROUTER_API_KEY;
 
       return reply.status(200).send({
         success: true,
         data: {
-          service: 'NVIDIA NIM',
+          service: 'OpenRouter',
           model: MODEL,
           available: isConfigured,
           timestamp: new Date().toISOString(),
